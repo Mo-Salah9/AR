@@ -1,0 +1,130 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: #0f1117;
+  color: #e8eaed;
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+header {
+  margin-bottom: 1.25rem;
+}
+
+h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin-top: 0.35rem;
+  color: #9aa0a6;
+  font-size: 0.95rem;
+}
+
+.camera-section {
+  margin-bottom: 1.5rem;
+}
+
+.video-wrap {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1a1d26;
+  aspect-ratio: 4 / 3;
+}
+
+#video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scaleX(-1);
+}
+
+.status {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.85rem;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+}
+
+.status.scanning {
+  color: #8ab4f8;
+}
+
+.status.found {
+  color: #81c995;
+  font-weight: 600;
+}
+
+.status.error {
+  color: #f28b82;
+}
+
+.detected-text {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #1a1d26;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #9aa0a6;
+  min-height: 2.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detected-text:empty::before {
+  content: "Last scanned text will appear here…";
+  color: #5f6368;
+}
+
+.rules {
+  padding: 1rem;
+  background: #1a1d26;
+  border-radius: 8px;
+}
+
+.rules h2 {
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+.rules ul {
+  margin-left: 1.25rem;
+}
+
+.rules li {
+  margin: 0.25rem 0;
+}
+
+.rules code {
+  background: #2d3139;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.rules a {
+  color: #8ab4f8;
+}
+
+.hint {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: #5f6368;
+}
