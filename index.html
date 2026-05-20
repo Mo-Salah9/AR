@@ -1,35 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AR Text Scanner</title>
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <div id="app">
-    <div id="camera-container">
-      <video id="video" autoplay playsinline muted></video>
-      <canvas id="overlay"></canvas>
-
-      <div id="status-bar">
-        <span id="status-text">Initializing camera...</span>
-      </div>
-
-      <div id="detection-banner" class="hidden">
-        <span id="detection-message"></span>
-      </div>
-
-      <div id="rules-panel">
-        <h3>Active Rules</h3>
-        <ul id="rules-list"></ul>
-      </div>
-    </div>
-
-    <canvas id="capture-canvas" style="display:none"></canvas>
-  </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AR Text Scanner</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>
