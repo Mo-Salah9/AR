@@ -105,9 +105,9 @@ export default function Scanner() {
       syncCanvas();
       window.addEventListener('resize', syncCanvas);
 
-      setStatus('Loading OCR engine…');
+      setStatus('Loading OCR engine (EN + AR)…');
       try {
-        workerRef.current = await createWorker('eng', 1, { logger: () => {} });
+        workerRef.current = await createWorker('eng+ara', 1, { logger: () => {} });
       } catch (e) {
         setStatus(`OCR error: ${e.message}`);
         return;
