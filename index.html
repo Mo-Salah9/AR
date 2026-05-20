@@ -7,29 +7,27 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main class="app">
-    <header>
-      <h1>AR Text Scanner</h1>
-      <p class="subtitle">Point the camera at text. When <strong>2025</strong> is detected, Google opens.</p>
-    </header>
+  <div id="app">
+    <div id="camera-container">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
 
-    <section class="camera-section">
-      <div class="video-wrap">
-        <video id="video" autoplay playsinline muted></video>
-        <canvas id="canvas" hidden></canvas>
-        <div id="status" class="status">Starting camera…</div>
+      <div id="status-bar">
+        <span id="status-text">Initializing camera...</span>
       </div>
-      <div id="detected-text" class="detected-text"></div>
-    </section>
 
-    <section class="rules">
-      <h2>Detection rules</h2>
-      <ul>
-        <li><code>2025</code> → <a href="https://www.google.com" target="_blank" rel="noopener">google.com</a></li>
-      </ul>
-      <p class="hint">Add more rules in <code>app.js</code> (<code>DETECTION_RULES</code>).</p>
-    </section>
-  </main>
+      <div id="detection-banner" class="hidden">
+        <span id="detection-message"></span>
+      </div>
+
+      <div id="rules-panel">
+        <h3>Active Rules</h3>
+        <ul id="rules-list"></ul>
+      </div>
+    </div>
+
+    <canvas id="capture-canvas" style="display:none"></canvas>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="app.js"></script>
