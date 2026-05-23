@@ -297,8 +297,9 @@ body {
 }
 
 .model-url-btn {
-  background: var(--accent);
-  color: #000;
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 9px 18px;
   font-size: 13px;
@@ -308,6 +309,35 @@ body {
 }
 
 .model-url-btn:hover { opacity: 0.85; }
+
+/* Primary AR launch button in model footer */
+.ar-launch-btn {
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: 24px;
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.ar-launch-btn:hover  { opacity: 0.88; }
+.ar-launch-btn:active { transform: scale(0.96); }
+
+/* model-viewer's built-in ar-button slot override */
+.ar-slot-btn {
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: 20px;
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
 
 .admin-link {
   position: absolute;

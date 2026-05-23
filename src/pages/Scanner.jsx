@@ -10,31 +10,76 @@ function loadImage(src) {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+    img.onerror = () => reject(new Error(`Failed to load: ${src}`));
     img.src = src;
   });
 }
 
 export default function Scanner() {
-  const videoRef         = useRef(null);
-  const captureRef       = useRef(null);
-  const overlayRef       = useRef(null);
-  const workerRef        = useRef(null);
-  const intervalRef      = useRef(null);
-  const scanningRef      = useRef(false);
-  const triggeredRef     = useRef(new Set());
-  const rulesRef         = useRef([]);
-  const aliveRef         = useRef(true);
-  const mindarRef        = useRef(null);
-  const imageModeRef     = useRef(null);
+  const videoRef       = useRef(null);
+  const captureRef     = useRef(null);
+  const overlayRef     = useRef(null);
+  const workerRef      = useRef(null);
+  const intervalRef    = useRef(null);
+  const scanningRef    = useRef(false);
+  const triggeredRef   = useRef(new Set());
+  const rulesRef       = useRef([]);
+  const aliveRef       = useRef(true);
+  const mindarRef      = useRef(null);
+  const imageModeRef   = useRef(null);
+  const modelViewerRef = useRef(null);
+
+  // Pre-compilation cache (survives mode switches)
+  const mindUrlRef            = useRef(null);
+  const compiledRulesRef      = useRef([]);
+  const MindARThreeRef        = useRef(null);
+  const compilePromiseRef     = useRef(null);
 
   const [rules,       setRules]       = useState([]);
   const [status,      setStatus]      = useState('Initializing…');
   const [isScanning,  setIsScanning]  = useState(false);
   const [banner,      setBanner]      = useState(null);
   const [activeModel, setActiveModel] = useState(null);
-  const [scanMode,    setScanMode]    = useState('text');  // 'text' | 'image'
+  const [scanMode,    setScanMode]    = useState('text');
   const [imageStatus, setImageStatus] = useState('');
+  const [imgReady,    setImgReady]    = useState(false);
+
+  // ── Background pre-compilation ──────────────────────────────────
+
+  function precompileImageTargets() {
+    const imageRules = rulesRef.current.filter(r => r.image_url);
+    if (imageRules.length === 0) {
+      mindUrlRef.current = null;
+      compiledRulesRef.current = [];
+      setImgReady(false);
+      return;
+    }
+    setImgReady(false);
+
+    const promise = (async () => {
+      const images = await Promise.all(imageRules.map(r => loadImage(r.image_url)));
+
+      const [{ MindARThree }, { Compiler }] = await Promise.all([
+        import('mind-ar/dist/mindar-image-three.prod.js'),
+        import('mind-ar/dist/mindar-image.prod.js'),
+      ]);
+      MindARThreeRef.current = MindARThree;
+
+      const compiler = new Compiler();
+      await compiler.compileImageTargets(images, () => {});
+      const data = await compiler.exportData();
+
+      if (mindUrlRef.current) URL.revokeObjectURL(mindUrlRef.current);
+      mindUrlRef.current = URL.createObjectURL(new Blob([data]));
+      compiledRulesRef.current = imageRules;
+      setImgReady(true);
+    })();
+
+    compilePromiseRef.current = promise.catch(() => {}); // swallow errors silently
+    return promise;
+  }
+
+  // ── Rules ───────────────────────────────────────────────────────
 
   const fetchRules = useCallback(async () => {
     const { data } = await supabase
@@ -45,9 +90,26 @@ export default function Scanner() {
     rulesRef.current = fresh;
     triggeredRef.current.clear();
     setRules(fresh);
+    precompileImageTargets();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Text mode helpers ───────────────────────────────────────────
+  // ── Trigger action ──────────────────────────────────────────────
+
+  function triggerRule(rule) {
+    if (rule.model_url) {
+      setActiveModel(rule);
+      setBanner(`"${rule.keyword}" detected`);
+      setTimeout(() => setBanner(null), 3000);
+    } else if (rule.url) {
+      const display = rule.url.replace(/^https?:\/\//, '');
+      setBanner(`"${rule.keyword}" detected — opening ${display}…`);
+      setTimeout(() => window.open(rule.url, '_blank'), 600);
+      setTimeout(() => setBanner(null), 4000);
+    }
+  }
+
+  // ── Text mode ───────────────────────────────────────────────────
 
   function syncCanvas() {
     const v = videoRef.current, o = overlayRef.current, c = captureRef.current;
@@ -59,12 +121,11 @@ export default function Scanner() {
   }
 
   function drawOverlay(words) {
-    const ol  = overlayRef.current;
-    const cap = captureRef.current;
+    const ol = overlayRef.current, cap = captureRef.current;
     if (!ol || !cap) return;
     const ctx = ol.getContext('2d');
     ctx.clearRect(0, 0, ol.width, ol.height);
-    const sx = ol.width  / (cap.width  || 1);
+    const sx = ol.width / (cap.width || 1);
     const sy = ol.height / (cap.height || 1);
     words.forEach(({ text, bbox, confidence }) => {
       if (!text.trim() || confidence < 45) return;
@@ -90,19 +151,6 @@ export default function Scanner() {
       if (!upper.includes(kw) || triggeredRef.current.has(rule.id)) continue;
       triggeredRef.current.add(rule.id);
       triggerRule(rule);
-    }
-  }
-
-  function triggerRule(rule) {
-    if (rule.model_url) {
-      setActiveModel(rule);
-      setBanner(`"${rule.keyword}" detected`);
-      setTimeout(() => setBanner(null), 3000);
-    } else if (rule.url) {
-      const display = rule.url.replace(/^https?:\/\//, '');
-      setBanner(`"${rule.keyword}" detected — opening ${display}…`);
-      setTimeout(() => window.open(rule.url, '_blank'), 600);
-      setTimeout(() => setBanner(null), 4000);
     }
   }
 
@@ -132,8 +180,7 @@ export default function Scanner() {
     try {
       workerRef.current = await createWorker('eng+ara', 1, { logger: () => {} });
     } catch (e) {
-      setStatus(`OCR error: ${e.message}`);
-      return;
+      setStatus(`OCR error: ${e.message}`); return;
     }
     if (!aliveRef.current) return;
 
@@ -143,8 +190,7 @@ export default function Scanner() {
     intervalRef.current = setInterval(async () => {
       if (scanningRef.current || !aliveRef.current) return;
       scanningRef.current = true;
-      const cap = captureRef.current;
-      const vid = videoRef.current;
+      const cap = captureRef.current, vid = videoRef.current;
       if (cap && vid && vid.readyState >= 2) {
         cap.getContext('2d').drawImage(vid, 0, 0, cap.width, cap.height);
         try {
@@ -161,71 +207,46 @@ export default function Scanner() {
     clearInterval(intervalRef.current);
     workerRef.current?.terminate();
     workerRef.current = null;
-    const stream = videoRef.current?.srcObject;
-    stream?.getTracks().forEach(t => t.stop());
+    videoRef.current?.srcObject?.getTracks().forEach(t => t.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
     setIsScanning(false);
   }
 
-  // ── Image mode helpers ──────────────────────────────────────────
+  // ── Image mode ──────────────────────────────────────────────────
 
   async function startImageMode() {
-    const imageRules = rulesRef.current.filter(r => r.image_url);
+    const imageRules = compiledRulesRef.current.length > 0
+      ? compiledRulesRef.current
+      : rulesRef.current.filter(r => r.image_url);
+
     if (imageRules.length === 0) {
-      setImageStatus('No image rules configured. Add rules with a Marker Image in the admin panel.');
+      setImageStatus('No image rules with Marker Images found. Add them in Admin Panel.');
       return;
     }
 
-    setImageStatus('Loading reference images…');
-    let images;
-    try {
-      images = await Promise.all(imageRules.map(r => loadImage(r.image_url)));
-    } catch (e) {
-      setImageStatus(`Failed to load images: ${e.message}`);
-      return;
-    }
-
-    setImageStatus('Loading image detection library…');
-    let MindARThree, Compiler;
-    try {
-      const [threemod, coremod] = await Promise.all([
-        import('mind-ar/dist/mindar-image-three.prod.js'),
-        import('mind-ar/dist/mindar-image.prod.js'),
-      ]);
-      MindARThree = threemod.MindARThree;
-      Compiler = coremod.Compiler;
-    } catch (e) {
-      setImageStatus(`Failed to load MindAR: ${e.message}`);
-      return;
-    }
-
-    setImageStatus('Compiling AR targets (first run may take ~30 s)…');
-    let mindUrl;
-    try {
-      const compiler = new Compiler();
-      await compiler.compileImageTargets(images, p => {
-        setImageStatus(`Compiling AR targets: ${Math.round(p * 100)}%`);
-      });
-      const data = await compiler.exportData();
-      mindUrl = URL.createObjectURL(new Blob([data]));
-    } catch (e) {
-      setImageStatus(`Compilation failed: ${e.message}`);
-      return;
+    if (!mindUrlRef.current) {
+      setImageStatus('Preparing AR targets…');
+      try {
+        await (compilePromiseRef.current ?? precompileImageTargets());
+      } catch (e) {
+        setImageStatus(`Preparation failed: ${e.message}`);
+        return;
+      }
     }
 
     setImageStatus('Starting AR camera…');
     try {
-      const mindar = new MindARThree({
+      const mindar = new MindARThreeRef.current({
         container:      imageModeRef.current,
-        imageTargetSrc: mindUrl,
-        maxTrack:       imageRules.length,
+        imageTargetSrc: mindUrlRef.current,
+        maxTrack:       compiledRulesRef.current.length,
       });
       mindarRef.current = mindar;
 
       const { renderer, scene, camera } = mindar;
       await mindar.start();
 
-      imageRules.forEach((rule, i) => {
+      compiledRulesRef.current.forEach((rule, i) => {
         const anchor = mindar.addAnchor(i);
         anchor.onTargetFound = () => {
           if (!triggeredRef.current.has(rule.id)) {
@@ -233,9 +254,7 @@ export default function Scanner() {
             triggerRule(rule);
           }
         };
-        anchor.onTargetLost = () => {
-          triggeredRef.current.delete(rule.id);
-        };
+        anchor.onTargetLost = () => triggeredRef.current.delete(rule.id);
       });
 
       renderer.setAnimationLoop(() => renderer.render(scene, camera));
@@ -279,7 +298,7 @@ export default function Scanner() {
     aliveRef.current = true;
 
     async function boot() {
-      await fetchRules();
+      await fetchRules(); // also triggers precompileImageTargets in background
       await startTextMode();
     }
     boot();
@@ -295,6 +314,7 @@ export default function Scanner() {
       aliveRef.current = false;
       stopTextMode();
       stopImageMode();
+      if (mindUrlRef.current) URL.revokeObjectURL(mindUrlRef.current);
       supabase.removeChannel(channel);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,12 +324,10 @@ export default function Scanner() {
 
   return (
     <div className="scanner">
-      {/* Text mode */}
+      {/* Text mode camera */}
       <video
         ref={videoRef}
-        autoPlay
-        playsInline
-        muted
+        autoPlay playsInline muted
         style={{ display: scanMode === 'text' ? 'block' : 'none' }}
       />
       <canvas
@@ -319,14 +337,14 @@ export default function Scanner() {
       />
       <canvas ref={captureRef} style={{ display: 'none' }} />
 
-      {/* Image mode — MindAR injects its video + canvas here */}
+      {/* Image mode — MindAR injects its video + WebGL canvas here */}
       <div
         ref={imageModeRef}
         className="image-mode-container"
         style={{ display: scanMode === 'image' ? 'block' : 'none' }}
       />
 
-      {/* Status bar (text mode only) */}
+      {/* Text mode status */}
       {scanMode === 'text' && (
         <div className={`status-bar${isScanning ? ' scanning' : ''}`}>
           <span className="dot" />
@@ -342,20 +360,29 @@ export default function Scanner() {
         </div>
       )}
 
-      {/* Detection banner */}
       {banner && <div className="banner">{banner}</div>}
 
       {/* 3D model viewer overlay */}
       {activeModel && (
         <div className="model-overlay">
           <model-viewer
+            ref={modelViewerRef}
             src={activeModel.model_url}
             ar
             ar-modes="webxr scene-viewer quick-look"
             auto-rotate
             camera-controls
             style={{ width: '100%', height: '100%' }}
-          />
+          >
+            {/* Custom AR button rendered inside model-viewer's shadow DOM slot */}
+            <button
+              slot="ar-button"
+              className="ar-slot-btn"
+            >
+              View in AR
+            </button>
+          </model-viewer>
+
           <button
             className="model-close"
             onClick={() => {
@@ -365,18 +392,27 @@ export default function Scanner() {
           >
             ✕
           </button>
+
           <div className="model-footer">
             <span className="model-label">{activeModel.keyword}</span>
-            {activeModel.url && (
-              <a
-                href={activeModel.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="model-url-btn"
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                className="ar-launch-btn"
+                onClick={() => modelViewerRef.current?.activateAR()}
               >
-                Open URL
-              </a>
-            )}
+                View in AR
+              </button>
+              {activeModel.url && (
+                <a
+                  href={activeModel.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="model-url-btn"
+                >
+                  Open URL
+                </a>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -413,7 +449,7 @@ export default function Scanner() {
           disabled={!hasImageRules}
           title={!hasImageRules ? 'Add rules with Marker Images in admin to enable' : ''}
         >
-          Image
+          {hasImageRules && !imgReady ? 'Image ⋯' : 'Image'}
         </button>
       </div>
 
