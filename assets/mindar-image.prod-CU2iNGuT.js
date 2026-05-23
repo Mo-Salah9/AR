@@ -1,1 +1,0 @@
-import{bA as o,a3 as r,ci as a}from"./controller-mGt1s8dJ-Q-f6JYM9.js";window.MINDAR||(window.MINDAR={});window.MINDAR.IMAGE={Controller:a,Compiler:r,UI:o};export{r as Compiler,a as Controller,o as UI};
