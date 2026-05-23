@@ -12,11 +12,6 @@ const mindARPromise = Promise.all([
 ]).catch(() => [null, null]);
 
 // ── IndexedDB cache ──────────────────────────────────────────────
-// Compiled .mind targets are large (can take 30+ s to generate).
-// We cache them by a key derived from rule IDs + image URLs so the
-// result is reused on every subsequent load and only re-generated
-// when rules actually change.
-
 function openTargetDB() {
   return new Promise((res, rej) => {
     const r = indexedDB.open('ar-scanner-v1', 1);
@@ -78,20 +73,22 @@ export default function Scanner() {
   const mindarRef      = useRef(null);
   const imageModeRef   = useRef(null);
   const modelViewerRef = useRef(null);
+  const videoPlayerRef = useRef(null);
 
   const mindUrlRef       = useRef(null);
   const compiledRulesRef = useRef([]);
   const MindARThreeRef   = useRef(null);
-  const activeModelRef   = useRef(null); // mirror of activeModel state for interval access
+  const activeModelRef   = useRef(null);
+  const activeVideoRef   = useRef(null);
 
   const [rules,       setRules]       = useState([]);
   const [banner,      setBanner]      = useState(null);
   const [activeModel, setActiveModel] = useState(null);
+  const [activeVideo, setActiveVideo] = useState(null);
   const [scanMode,    setScanMode]    = useState('text');
   const [imageStatus, setImageStatus] = useState('');
   const [imgReady,    setImgReady]    = useState(false);
 
-  // Loading splash state
   const [appReady,  setAppReady]  = useState(false);
   const [loadSteps, setLoadSteps] = useState([
     { id: 'db',     label: 'Loading rules',        done: false },
@@ -106,15 +103,29 @@ export default function Scanner() {
     setLoadSteps(prev => [...prev, step]);
   }
 
-  // Keep ref in sync so the interval can check without a stale closure
+  // Keep refs in sync so interval/anchor callbacks avoid stale closures
   useEffect(() => { activeModelRef.current = activeModel; }, [activeModel]);
+  useEffect(() => { activeVideoRef.current = activeVideo; }, [activeVideo]);
+
+  // Auto-activate AR when model viewer opens (best-effort — requires user gesture on most browsers,
+  // but the slot button "View in AR" is always visible as a fallback)
+  useEffect(() => {
+    if (!activeModel) return;
+    const t = setTimeout(() => modelViewerRef.current?.activateAR(), 900);
+    return () => clearTimeout(t);
+  }, [activeModel]);
+
+  // Auto-play video when video overlay opens
+  useEffect(() => {
+    if (!activeVideo) return;
+    videoPlayerRef.current?.play().catch(() => {});
+  }, [activeVideo]);
 
   // ── Image target compilation with cache ──────────────────────────
 
   async function compileImageTargets(imageRules) {
     const key = makeCacheKey(imageRules);
 
-    // Fast path: use cached compiled data
     const cached = await cacheGet(key);
     if (cached) {
       const [threemod] = await mindARPromise;
@@ -127,7 +138,6 @@ export default function Scanner() {
       return;
     }
 
-    // Slow path: compile + save to cache
     const [images, [threemod, coremod]] = await Promise.all([
       Promise.all(imageRules.map(r => loadImage(r.image_url))),
       mindARPromise,
@@ -140,7 +150,7 @@ export default function Scanner() {
     await compiler.compileImageTargets(images, () => {});
     const data = await compiler.exportData();
 
-    await cachePut(key, data); // persist for next session
+    await cachePut(key, data);
 
     if (mindUrlRef.current) URL.revokeObjectURL(mindUrlRef.current);
     mindUrlRef.current    = URL.createObjectURL(new Blob([data]));
@@ -165,9 +175,7 @@ export default function Scanner() {
   function triggerRule(rule) {
     if (rule.model_url) {
       const isAndroid = /android/i.test(navigator.userAgent);
-
       if (isAndroid) {
-        // Android: navigate to Scene Viewer directly — no user gesture required
         const file     = encodeURIComponent(rule.model_url);
         const fallback = encodeURIComponent(window.location.href);
         const title    = encodeURIComponent(rule.keyword);
@@ -178,14 +186,13 @@ export default function Scanner() {
         setBanner({ text: `Opening AR for "${rule.keyword}"…`, url: null });
         setTimeout(() => setBanner(null), 3000);
       } else {
-        // iOS / desktop: show modal, then try auto-activating AR
         setActiveModel(rule);
       }
+    } else if (rule.video_url) {
+      setActiveVideo(rule);
     } else if (rule.url) {
-      // Try to open URL immediately — only fall back to banner if popup is blocked
       const win = window.open(rule.url, '_blank', 'noopener,noreferrer');
       if (!win) {
-        // Popup blocked — give the user a tappable link
         const display = rule.url.replace(/^https?:\/\//, '');
         setBanner({ text: `"${rule.keyword}" detected — tap to open ${display}`, url: rule.url });
         setTimeout(() => setBanner(null), 8000);
@@ -265,7 +272,7 @@ export default function Scanner() {
     markDone('ocr');
 
     intervalRef.current = setInterval(async () => {
-      if (scanningRef.current || !aliveRef.current || activeModelRef.current) return;
+      if (scanningRef.current || !aliveRef.current || activeModelRef.current || activeVideoRef.current) return;
       scanningRef.current = true;
       const cap = captureRef.current, vid = videoRef.current;
       if (cap && vid && vid.readyState >= 2) {
@@ -309,7 +316,7 @@ export default function Scanner() {
       compiledRulesRef.current.forEach((rule, i) => {
         const anchor = mindar.addAnchor(i);
         anchor.onTargetFound = () => {
-          if (activeModelRef.current) return;
+          if (activeModelRef.current || activeVideoRef.current) return;
           if (!triggeredRef.current.has(rule.id)) {
             triggeredRef.current.add(rule.id);
             triggerRule(rule);
@@ -355,18 +362,15 @@ export default function Scanner() {
     aliveRef.current = true;
 
     async function boot() {
-      // 1. Fetch rules (fast DB call)
       const fresh = await fetchRules();
       markDone('db');
 
       const imageRules = fresh.filter(r => r.image_url);
 
-      // 2. Register the images step only if there are image rules
       if (imageRules.length > 0) {
         addLoadStep({ id: 'images', label: 'Preparing AR targets', done: false });
       }
 
-      // 3. Load OCR engine + compile image targets in parallel
       await Promise.all([
         startTextMode(),
         imageRules.length > 0 ? compileImageTargets(imageRules) : Promise.resolve(),
@@ -375,7 +379,7 @@ export default function Scanner() {
       setAppReady(true);
     }
 
-    boot().catch(() => setAppReady(true)); // always show the app even if something fails
+    boot().catch(() => setAppReady(true));
 
     const channel = supabase
       .channel('rules-live')
@@ -396,6 +400,17 @@ export default function Scanner() {
 
   const hasImageRules = rules.some(r => r.image_url);
 
+  function closeModel() {
+    triggeredRef.current.delete(activeModel?.id);
+    setActiveModel(null);
+  }
+
+  function closeVideo() {
+    videoPlayerRef.current?.pause();
+    triggeredRef.current.delete(activeVideo?.id);
+    setActiveVideo(null);
+  }
+
   return (
     <>
       {/* ── Splash / loading screen ─────────────────────────────── */}
@@ -415,7 +430,7 @@ export default function Scanner() {
         </div>
       )}
 
-      {/* ── Main scanner (hidden during splash, avoids flash) ────── */}
+      {/* ── Main scanner ─────────────────────────────────────────── */}
       <div className="scanner" style={{ visibility: appReady ? 'visible' : 'hidden' }}>
         <video
           ref={videoRef}
@@ -448,58 +463,60 @@ export default function Scanner() {
             : <div className="banner">{banner.text}</div>
         )}
 
-        {/* 3D model viewer — modal card style */}
+        {/* ── Full-screen 3D model viewer ─────────────────────── */}
         {activeModel && (
-          <div
-            className="model-modal-bg"
-            onClick={() => { triggeredRef.current.delete(activeModel.id); setActiveModel(null); }}
-          >
-            <div className="model-modal-card" onClick={e => e.stopPropagation()}>
-
-              {/* Header */}
-              <div className="model-modal-header">
-                <span className="model-modal-title">{activeModel.keyword}</span>
-                <button
-                  className="model-modal-close"
-                  onClick={() => { triggeredRef.current.delete(activeModel.id); setActiveModel(null); }}
-                >×</button>
-              </div>
-
-              {/* model-viewer frame */}
-              <model-viewer
-                ref={modelViewerRef}
-                src={activeModel.model_url}
-                ar
-                ar-modes="webxr scene-viewer quick-look"
-                auto-rotate
-                camera-controls
-                touch-action="pan-y"
-                shadow-intensity="1"
-                class="model-modal-viewer"
-              >
-                {/* slot button shown inside the 3D scene (bottom-right) */}
-                <button slot="ar-button" className="ar-slot-btn">View in AR</button>
-              </model-viewer>
-
-              {/* Footer actions */}
-              <div className="model-modal-footer">
-                <button
-                  className="ar-launch-btn"
-                  onClick={() => modelViewerRef.current?.activateAR()}
-                >
-                  View in AR
-                </button>
-                {activeModel.url && (
-                  <a
-                    href={activeModel.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="model-url-btn"
-                  >Open URL</a>
-                )}
-              </div>
-
+          <div className="content-fullscreen">
+            <div className="content-header">
+              <button className="back-btn" onClick={closeModel}>← Back</button>
+              <span className="content-title">{activeModel.keyword}</span>
+              {activeModel.url && (
+                <a
+                  href={activeModel.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="content-url-btn"
+                >Open URL</a>
+              )}
             </div>
+            <model-viewer
+              ref={modelViewerRef}
+              src={activeModel.model_url}
+              ar
+              ar-modes="webxr scene-viewer quick-look"
+              auto-rotate
+              camera-controls
+              touch-action="pan-y"
+              shadow-intensity="1"
+              class="content-model-viewer"
+            >
+              <button slot="ar-button" className="ar-slot-btn">View in AR</button>
+            </model-viewer>
+          </div>
+        )}
+
+        {/* ── Full-screen video player ────────────────────────── */}
+        {activeVideo && (
+          <div className="content-fullscreen video-fullscreen">
+            <div className="content-header">
+              <button className="back-btn" onClick={closeVideo}>← Back</button>
+              <span className="content-title">{activeVideo.keyword}</span>
+              {activeVideo.url && (
+                <a
+                  href={activeVideo.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="content-url-btn"
+                >Open URL</a>
+              )}
+            </div>
+            <video
+              ref={videoPlayerRef}
+              src={activeVideo.video_url}
+              controls
+              autoPlay
+              playsInline
+              className="content-video"
+            />
           </div>
         )}
 
@@ -512,9 +529,10 @@ export default function Scanner() {
                 <span className="kw">{r.keyword}</span>
                 <span className="arrow">→</span>
                 <span className="url">
-                  {r.model_url ? '3D model' : r.url?.replace(/^https?:\/\//, '') ?? '—'}
+                  {r.model_url ? '3D model' : r.video_url ? 'Video' : r.url?.replace(/^https?:\/\//, '') ?? '—'}
                 </span>
                 {r.image_url && <span className="chip-img-badge">IMG</span>}
+                {r.video_url && !r.model_url && <span className="chip-vid-badge">VID</span>}
               </div>
             ))
           }

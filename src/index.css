@@ -246,6 +246,17 @@ body {
   padding: 1px 4px;
 }
 
+.chip-vid-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: rgba(255,152,0,0.15);
+  color: #ff9800;
+  border: 1px solid rgba(255,152,0,0.3);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
 /* ── Image mode container ──────────────────────────────────────── */
 
 .image-mode-container {
@@ -323,132 +334,95 @@ body {
   cursor: not-allowed;
 }
 
-/* ── 3D model viewer — modal card (Interactive-book style) ───── */
-
-.model-modal-bg {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.82);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-  padding: 16px;
-  animation: fadeIn 0.25s ease;
-}
+/* ── Full-screen content overlay (3D model / video) ────────────── */
 
 @keyframes fadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
 
-.model-modal-card {
-  width: 100%;
-  max-width: 520px;
-  max-height: 90vh;
-  background: var(--surface);
-  border: 1px solid var(--border-h);
-  border-radius: 18px;
-  overflow: hidden;
+.content-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: #0d0d1a;
   display: flex;
   flex-direction: column;
-  animation: slideUp 0.3s ease;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+  animation: fadeIn 0.2s ease;
 }
 
-.model-modal-header {
+.video-fullscreen { background: #000; }
+
+.content-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  z-index: 10;
 }
 
-.model-modal-title {
+.back-btn {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: #fff;
+  padding: 7px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.back-btn:hover { background: rgba(255,255,255,0.18); }
+
+.content-title {
+  color: #fff;
   font-size: 16px;
   font-weight: 700;
-  color: var(--text);
-}
-
-.model-modal-close {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 22px;
-  line-height: 1;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.2s, background 0.2s;
-  flex-shrink: 0;
-}
-
-.model-modal-close:hover { color: var(--text); background: var(--border-h); }
-
-/* Light bg so most GLB models render well */
-.model-modal-viewer {
-  width: 100%;
-  height: 420px;
-  background-color: #f0f0f0;
-  --progress-bar-color: #667eea;
-  flex-shrink: 0;
-}
-
-@media (max-height: 700px) {
-  .model-modal-viewer { height: 270px; }
-}
-
-.model-modal-footer {
-  display: flex;
-  gap: 10px;
-  padding: 14px 20px;
-  border-top: 1px solid var(--border);
-  background: var(--surface);
-  flex-shrink: 0;
-}
-
-/* Primary AR button — gradient matches Interactive-book */
-.ar-launch-btn {
   flex: 1;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
-  border: none;
-  border-radius: 10px;
-  padding: 13px 20px;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-  letter-spacing: 0.3px;
-  transition: opacity 0.2s, transform 0.1s;
-  box-shadow: 0 4px 16px rgba(102,126,234,0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.ar-launch-btn:hover  { opacity: 0.9; }
-.ar-launch-btn:active { transform: scale(0.97); }
-
-.model-url-btn {
+.content-url-btn {
   background: var(--surface2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 13px 18px;
-  font-size: 14px;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
   font-weight: 600;
   text-decoration: none;
-  display: flex;
-  align-items: center;
+  flex-shrink: 0;
   transition: border-color 0.2s;
-  white-space: nowrap;
 }
 
-.model-url-btn:hover { border-color: var(--border-h); }
+.content-url-btn:hover { border-color: var(--border-h); }
 
-/* model-viewer built-in slot button */
+/* model-viewer fills remaining height; light bg helps most GLBs */
+.content-model-viewer {
+  flex: 1;
+  width: 100%;
+  background: #f5f5f5;
+  --progress-bar-color: #667eea;
+}
+
+/* Video fills remaining height, letterboxed */
+.content-video {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  object-fit: contain;
+  background: #000;
+}
+
+/* model-viewer built-in AR slot button */
 .ar-slot-btn {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #fff;
@@ -714,7 +688,7 @@ body {
 /* ── Upload fields ─────────────────────────────────────────────── */
 
 .upload-row {
-  grid-template-columns: 1fr 1fr !important;
+  grid-template-columns: repeat(3, 1fr) !important;
   margin-top: 12px;
 }
 
@@ -785,6 +759,12 @@ body {
   border-color: rgba(100,181,246,0.25);
 }
 
+.file-badge.video {
+  background: rgba(255,152,0,0.08);
+  color: #ff9800;
+  border-color: rgba(255,152,0,0.25);
+}
+
 .table-thumb {
   width: 40px;
   height: 40px;
@@ -799,8 +779,11 @@ body {
   .upload-row { grid-template-columns: 1fr !important; }
   .admin-header { padding: 16px; }
   .admin-main { padding: 16px; }
+  /* hide Model, Video, URL columns on small screens */
   .rules-table th:nth-child(3),
   .rules-table td:nth-child(3),
   .rules-table th:nth-child(4),
-  .rules-table td:nth-child(4) { display: none; }
+  .rules-table td:nth-child(4),
+  .rules-table th:nth-child(5),
+  .rules-table td:nth-child(5) { display: none; }
 }

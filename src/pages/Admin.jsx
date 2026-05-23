@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 
-const BLANK = { keyword: '', url: '', active: true, image_url: null, model_url: null };
+const BLANK = { keyword: '', url: '', active: true, image_url: null, model_url: null, video_url: null };
 
 async function uploadFile(bucket, file) {
   const ext = file.name.split('.').pop();
@@ -22,10 +22,12 @@ export default function Admin() {
   const [error,      setError]      = useState(null);
   const [imageFile,  setImageFile]  = useState(null);
   const [modelFile,  setModelFile]  = useState(null);
+  const [videoFile,  setVideoFile]  = useState(null);
   const [imgPreview, setImgPreview] = useState(null);
 
   const imageInputRef = useRef(null);
   const modelInputRef = useRef(null);
+  const videoInputRef = useRef(null);
 
   async function load() {
     setLoading(true);
@@ -42,9 +44,17 @@ export default function Admin() {
 
   function beginEdit(rule) {
     setEditId(rule.id);
-    setForm({ keyword: rule.keyword, url: rule.url ?? '', active: rule.active, image_url: rule.image_url, model_url: rule.model_url });
+    setForm({
+      keyword:   rule.keyword,
+      url:       rule.url ?? '',
+      active:    rule.active,
+      image_url: rule.image_url,
+      model_url: rule.model_url,
+      video_url: rule.video_url,
+    });
     setImageFile(null);
     setModelFile(null);
+    setVideoFile(null);
     setImgPreview(rule.image_url ?? null);
     setError(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -55,6 +65,7 @@ export default function Admin() {
     setForm(BLANK);
     setImageFile(null);
     setModelFile(null);
+    setVideoFile(null);
     setImgPreview(null);
     setError(null);
   }
@@ -71,6 +82,11 @@ export default function Admin() {
     if (file) setModelFile(file);
   }
 
+  function pickVideo(e) {
+    const file = e.target.files?.[0];
+    if (file) setVideoFile(file);
+  }
+
   async function submit(e) {
     e.preventDefault();
     if (!form.keyword.trim()) { setError('Keyword / name is required.'); return; }
@@ -80,10 +96,12 @@ export default function Admin() {
 
     let image_url = form.image_url;
     let model_url = form.model_url;
+    let video_url = form.video_url;
 
     try {
       if (imageFile) image_url = await uploadFile('markers', imageFile);
-      if (modelFile) model_url = await uploadFile('models', modelFile);
+      if (modelFile) model_url = await uploadFile('models',  modelFile);
+      if (videoFile) video_url = await uploadFile('videos',  videoFile);
     } catch (err) {
       setError(err.message);
       setSaving(false);
@@ -96,6 +114,7 @@ export default function Admin() {
       active:    form.active,
       image_url: image_url ?? null,
       model_url: model_url ?? null,
+      video_url: video_url ?? null,
     };
 
     const { error } = editId
@@ -176,56 +195,45 @@ export default function Admin() {
               </div>
             </div>
 
-            {/* Row 2: image upload + model upload */}
+            {/* Row 2: image + model + video uploads */}
             <div className="form-row upload-row">
+              {/* Marker image */}
               <div className="upload-field">
                 <span className="upload-field-label">
-                  Marker Image <span className="field-optional">(for image detection)</span>
+                  Marker Image <span className="field-optional">(image detection)</span>
                 </span>
-                <input
-                  ref={imageInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={pickImage}
-                />
-                <button
-                  type="button"
-                  className="upload-btn"
-                  onClick={() => imageInputRef.current.click()}
-                >
+                <input ref={imageInputRef} type="file" accept="image/*" onChange={pickImage} />
+                <button type="button" className="upload-btn" onClick={() => imageInputRef.current.click()}>
                   {imgPreview ? 'Change Image' : 'Upload Image'}
                 </button>
-                {imgPreview && (
-                  <img src={imgPreview} alt="marker preview" className="img-preview" />
-                )}
-                {!imgPreview && form.image_url && (
-                  <span className="file-badge">Image saved</span>
-                )}
+                {imgPreview && <img src={imgPreview} alt="marker preview" className="img-preview" />}
+                {!imgPreview && form.image_url && <span className="file-badge">Image saved</span>}
               </div>
 
+              {/* 3D model */}
               <div className="upload-field">
                 <span className="upload-field-label">
-                  3D Model (.glb) <span className="field-optional">(shown when detected)</span>
+                  3D Model (.glb) <span className="field-optional">(AR viewer)</span>
                 </span>
-                <input
-                  ref={modelInputRef}
-                  type="file"
-                  accept=".glb,.gltf"
-                  onChange={pickModel}
-                />
-                <button
-                  type="button"
-                  className="upload-btn"
-                  onClick={() => modelInputRef.current.click()}
-                >
+                <input ref={modelInputRef} type="file" accept=".glb,.gltf" onChange={pickModel} />
+                <button type="button" className="upload-btn" onClick={() => modelInputRef.current.click()}>
                   {modelFile ? 'Change Model' : form.model_url ? 'Replace Model' : 'Upload Model'}
                 </button>
-                {modelFile && (
-                  <span className="file-badge model">{modelFile.name}</span>
-                )}
-                {!modelFile && form.model_url && (
-                  <span className="file-badge model">Model saved</span>
-                )}
+                {modelFile && <span className="file-badge model">{modelFile.name}</span>}
+                {!modelFile && form.model_url && <span className="file-badge model">Model saved</span>}
+              </div>
+
+              {/* Video */}
+              <div className="upload-field">
+                <span className="upload-field-label">
+                  Video <span className="field-optional">(plays when detected)</span>
+                </span>
+                <input ref={videoInputRef} type="file" accept="video/*" onChange={pickVideo} />
+                <button type="button" className="upload-btn" onClick={() => videoInputRef.current.click()}>
+                  {videoFile ? 'Change Video' : form.video_url ? 'Replace Video' : 'Upload Video'}
+                </button>
+                {videoFile && <span className="file-badge video">{videoFile.name}</span>}
+                {!videoFile && form.video_url && <span className="file-badge video">Video saved</span>}
               </div>
             </div>
 
@@ -257,6 +265,7 @@ export default function Admin() {
                   <th>Keyword</th>
                   <th>Image</th>
                   <th>Model</th>
+                  <th>Video</th>
                   <th>URL</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -275,6 +284,12 @@ export default function Admin() {
                     <td>
                       {rule.model_url
                         ? <span className="file-badge model">3D</span>
+                        : <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
+                      }
+                    </td>
+                    <td>
+                      {rule.video_url
+                        ? <span className="file-badge video">VID</span>
                         : <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
                       }
                     </td>
