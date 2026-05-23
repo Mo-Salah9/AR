@@ -188,9 +188,12 @@ export default function Scanner() {
     setImageStatus('Loading image detection library…');
     let MindARThree, Compiler;
     try {
-      const mod = await import('mind-ar/dist/mindar-image-three.prod.js');
-      MindARThree = mod.MindARThree;
-      Compiler = mod.Compiler;
+      const [threemod, coremod] = await Promise.all([
+        import('mind-ar/dist/mindar-image-three.prod.js'),
+        import('mind-ar/dist/mindar-image.prod.js'),
+      ]);
+      MindARThree = threemod.MindARThree;
+      Compiler = coremod.Compiler;
     } catch (e) {
       setImageStatus(`Failed to load MindAR: ${e.message}`);
       return;
