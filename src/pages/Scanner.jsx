@@ -108,6 +108,12 @@ export default function Scanner() {
     videoPlayerRef.current?.play().catch(() => {});
   }, [activeVideo]);
 
+  // Stop camera while model/video viewer is open; resume on close
+  useEffect(() => {
+    const tracks = videoRef.current?.srcObject?.getTracks() ?? [];
+    tracks.forEach(t => { t.enabled = !(activeModel || activeVideo); });
+  }, [activeModel, activeVideo]);
+
   // Auto-activate AR when model-viewer opens from image detection
   useEffect(() => {
     if (!activeModel?.model_url) return;
@@ -567,20 +573,22 @@ export default function Scanner() {
           </div>
         )}
 
-        <div className="mode-toggle">
-          <button
-            className={`mode-btn${scanMode === 'text' ? ' active' : ''}`}
-            onClick={switchToText}
-          >Text</button>
-          <button
-            className={`mode-btn${scanMode === 'image' ? ' active' : ''}`}
-            onClick={switchToImage}
-            disabled={!hasImageRules}
-            title={!hasImageRules ? 'Add rules with Marker Images in admin' : ''}
-          >
-            {hasImageRules && !imgReady ? 'Image ⋯' : 'Image'}
-          </button>
-        </div>
+        {!activeModel && !activeVideo && (
+          <div className="mode-toggle">
+            <button
+              className={`mode-btn${scanMode === 'text' ? ' active' : ''}`}
+              onClick={switchToText}
+            >Text</button>
+            <button
+              className={`mode-btn${scanMode === 'image' ? ' active' : ''}`}
+              onClick={switchToImage}
+              disabled={!hasImageRules}
+              title={!hasImageRules ? 'Add rules with Marker Images in admin' : ''}
+            >
+              {hasImageRules && !imgReady ? 'Image ⋯' : 'Image'}
+            </button>
+          </div>
+        )}
 
       </div>
     </>

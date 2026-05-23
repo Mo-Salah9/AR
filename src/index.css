@@ -354,6 +354,8 @@ body {
 .video-fullscreen { background: #000; }
 
 .content-header {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -362,7 +364,6 @@ body {
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  z-index: 10;
 }
 
 .back-btn {
