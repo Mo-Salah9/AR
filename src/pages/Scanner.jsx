@@ -81,11 +81,10 @@ export default function Scanner() {
   const activeVideoRef   = useRef(null);
 
   const [rules,       setRules]       = useState([]);
-  const [banner,       setBanner]       = useState(null);
-  const [activeModel,  setActiveModel]  = useState(null);
-  const [activeVideo,  setActiveVideo]  = useState(null);
-  const [modelPreview, setModelPreview] = useState(false); // true = show 3D preview instead of AR screen
-  const [scanMode,     setScanMode]     = useState('text');
+  const [banner,      setBanner]      = useState(null);
+  const [activeModel, setActiveModel] = useState(null);
+  const [activeVideo, setActiveVideo] = useState(null);
+  const [scanMode,    setScanMode]    = useState('text');
   const [imageStatus, setImageStatus] = useState('');
   const [imgReady,    setImgReady]    = useState(false);
 
@@ -102,15 +101,6 @@ export default function Scanner() {
   function addLoadStep(step) {
     setLoadSteps(prev => [...prev, step]);
   }
-
-  // Keep refs in sync so interval/anchor callbacks avoid stale closures
-  useEffect(() => { activeModelRef.current = activeModel; }, [activeModel]);
-  useEffect(() => { activeVideoRef.current = activeVideo; }, [activeVideo]);
-
-  // Reset preview mode each time a new model is triggered
-  useEffect(() => {
-    if (activeModel) setModelPreview(false);
-  }, [activeModel]);
 
   // Auto-play video when video overlay opens
   useEffect(() => {
@@ -183,9 +173,11 @@ export default function Scanner() {
         setBanner({ text: `Opening AR for "${rule.keyword}"…`, url: null });
         setTimeout(() => setBanner(null), 3000);
       } else {
+        activeModelRef.current = rule; // set synchronously so interval stops immediately
         setActiveModel(rule);
       }
     } else if (rule.video_url) {
+      activeVideoRef.current = rule; // set synchronously
       setActiveVideo(rule);
     } else if (rule.url) {
       const win = window.open(rule.url, '_blank', 'noopener,noreferrer');
@@ -398,11 +390,13 @@ export default function Scanner() {
   const hasImageRules = rules.some(r => r.image_url);
 
   function closeModel() {
+    activeModelRef.current = null; // clear synchronously so scanning resumes immediately
     triggeredRef.current.delete(activeModel?.id);
     setActiveModel(null);
   }
 
   function closeVideo() {
+    activeVideoRef.current = null; // clear synchronously
     videoPlayerRef.current?.pause();
     triggeredRef.current.delete(activeVideo?.id);
     setActiveVideo(null);
@@ -460,73 +454,30 @@ export default function Scanner() {
             : <div className="banner">{banner.text}</div>
         )}
 
-        {/* ── Full-screen AR / model viewer ─────────────────── */}
+        {/* ── Full-screen model viewer ───────────────────────── */}
         {activeModel && (
           <div className="content-fullscreen">
-            {/* model-viewer always in DOM so it preloads the model */}
+            <div className="content-header">
+              <button className="back-btn" onClick={closeModel}>← Back</button>
+              <span className="content-title">{activeModel.keyword}</span>
+              <button
+                className="ar-header-btn"
+                onClick={() => modelViewerRef.current?.activateAR()}
+              >View in AR</button>
+            </div>
             <model-viewer
               ref={modelViewerRef}
               src={activeModel.model_url}
               ar
               ar-modes="webxr scene-viewer quick-look"
-              auto-rotate={modelPreview ? true : undefined}
-              camera-controls={modelPreview ? true : undefined}
+              auto-rotate
+              camera-controls
               touch-action="pan-y"
               shadow-intensity="1"
               class="content-model-viewer"
             >
               <button slot="ar-button" className="ar-slot-btn">View in AR</button>
             </model-viewer>
-
-            {/* AR launch screen — covers model preview until user taps */}
-            {!modelPreview && (
-              <div className="ar-launch-screen">
-                <button className="ar-back-btn" onClick={closeModel}>← Back</button>
-
-                <div className="ar-launch-body">
-                  <div className="ar-launch-icon">
-                    <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M32 4L58 18V46L32 60L6 46V18L32 4Z" stroke="#667eea" strokeWidth="2.5" strokeLinejoin="round"/>
-                      <path d="M32 4V60M6 18L58 18M6 46L58 46" stroke="#764ba2" strokeWidth="1.2" strokeDasharray="4 3"/>
-                      <circle cx="32" cy="32" r="6" fill="#667eea" opacity="0.8"/>
-                    </svg>
-                  </div>
-                  <p className="ar-launch-keyword">{activeModel.keyword}</p>
-                  <button
-                    className="ar-big-btn"
-                    onClick={() => modelViewerRef.current?.activateAR()}
-                  >
-                    View in AR
-                  </button>
-                  <button
-                    className="ar-preview-btn"
-                    onClick={() => setModelPreview(true)}
-                  >
-                    Preview 3D model
-                  </button>
-                  {activeModel.url && (
-                    <a
-                      href={activeModel.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="ar-url-link"
-                    >Open URL</a>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Header shown only in preview mode */}
-            {modelPreview && (
-              <div className="content-header">
-                <button className="back-btn" onClick={closeModel}>← Back</button>
-                <span className="content-title">{activeModel.keyword}</span>
-                <button
-                  className="content-url-btn"
-                  onClick={() => modelViewerRef.current?.activateAR()}
-                >View in AR</button>
-              </div>
-            )}
           </div>
         )}
 
