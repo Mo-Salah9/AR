@@ -351,13 +351,10 @@ export default function Scanner() {
         }
 
         anchor.onTargetFound = () => {
-          if (activeVideoRef.current) return;
-          // Model rules appear in-scene automatically — only trigger for URL/video rules
-          if (!rule.model_url) {
-            if (!triggeredRef.current.has(rule.id)) {
-              triggeredRef.current.add(rule.id);
-              triggerRule(rule);
-            }
+          if (activeModelRef.current || activeVideoRef.current) return;
+          if (!triggeredRef.current.has(rule.id)) {
+            triggeredRef.current.add(rule.id);
+            triggerRule(rule);
           }
         };
         anchor.onTargetLost = () => triggeredRef.current.delete(rule.id);
