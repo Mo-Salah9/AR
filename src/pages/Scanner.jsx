@@ -108,6 +108,16 @@ export default function Scanner() {
     videoPlayerRef.current?.play().catch(() => {});
   }, [activeVideo]);
 
+  // Auto-activate AR when model-viewer opens from image detection
+  useEffect(() => {
+    if (!activeModel?.model_url) return;
+    const mv = modelViewerRef.current;
+    if (!mv) return;
+    const tryAR = () => { try { mv.activateAR(); } catch (_) {} };
+    mv.addEventListener('load', tryAR, { once: true });
+    return () => mv.removeEventListener('load', tryAR);
+  }, [activeModel]);
+
   // ── Image target compilation with cache ──────────────────────────
 
   async function compileImageTargets(imageRules) {
@@ -355,6 +365,8 @@ export default function Scanner() {
           if (!triggeredRef.current.has(rule.id)) {
             triggeredRef.current.add(rule.id);
             triggerRule(rule);
+            // Stop scanner so it doesn't compete with the model viewer
+            if (rule.model_url) stopImageMode();
           }
         };
         anchor.onTargetLost = () => triggeredRef.current.delete(rule.id);
@@ -436,9 +448,11 @@ export default function Scanner() {
   const hasImageRules = rules.some(r => r.image_url);
 
   function closeModel() {
-    activeModelRef.current = null; // clear synchronously so scanning resumes immediately
+    activeModelRef.current = null;
     triggeredRef.current.delete(activeModel?.id);
     setActiveModel(null);
+    // Resume image scanning if that's where we came from
+    if (scanMode === 'image') startImageMode().catch(() => {});
   }
 
   function closeVideo() {
