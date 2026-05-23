@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createWorker } from 'tesseract.js';
-import { Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 
 const SCAN_MS = 1500;
@@ -82,10 +81,11 @@ export default function Scanner() {
   const activeVideoRef   = useRef(null);
 
   const [rules,       setRules]       = useState([]);
-  const [banner,      setBanner]      = useState(null);
-  const [activeModel, setActiveModel] = useState(null);
-  const [activeVideo, setActiveVideo] = useState(null);
-  const [scanMode,    setScanMode]    = useState('text');
+  const [banner,       setBanner]       = useState(null);
+  const [activeModel,  setActiveModel]  = useState(null);
+  const [activeVideo,  setActiveVideo]  = useState(null);
+  const [modelPreview, setModelPreview] = useState(false); // true = show 3D preview instead of AR screen
+  const [scanMode,     setScanMode]     = useState('text');
   const [imageStatus, setImageStatus] = useState('');
   const [imgReady,    setImgReady]    = useState(false);
 
@@ -107,12 +107,9 @@ export default function Scanner() {
   useEffect(() => { activeModelRef.current = activeModel; }, [activeModel]);
   useEffect(() => { activeVideoRef.current = activeVideo; }, [activeVideo]);
 
-  // Auto-activate AR when model viewer opens (best-effort — requires user gesture on most browsers,
-  // but the slot button "View in AR" is always visible as a fallback)
+  // Reset preview mode each time a new model is triggered
   useEffect(() => {
-    if (!activeModel) return;
-    const t = setTimeout(() => modelViewerRef.current?.activateAR(), 900);
-    return () => clearTimeout(t);
+    if (activeModel) setModelPreview(false);
   }, [activeModel]);
 
   // Auto-play video when video overlay opens
@@ -463,34 +460,73 @@ export default function Scanner() {
             : <div className="banner">{banner.text}</div>
         )}
 
-        {/* ── Full-screen 3D model viewer ─────────────────────── */}
+        {/* ── Full-screen AR / model viewer ─────────────────── */}
         {activeModel && (
           <div className="content-fullscreen">
-            <div className="content-header">
-              <button className="back-btn" onClick={closeModel}>← Back</button>
-              <span className="content-title">{activeModel.keyword}</span>
-              {activeModel.url && (
-                <a
-                  href={activeModel.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="content-url-btn"
-                >Open URL</a>
-              )}
-            </div>
+            {/* model-viewer always in DOM so it preloads the model */}
             <model-viewer
               ref={modelViewerRef}
               src={activeModel.model_url}
               ar
               ar-modes="webxr scene-viewer quick-look"
-              auto-rotate
-              camera-controls
+              auto-rotate={modelPreview ? true : undefined}
+              camera-controls={modelPreview ? true : undefined}
               touch-action="pan-y"
               shadow-intensity="1"
               class="content-model-viewer"
             >
               <button slot="ar-button" className="ar-slot-btn">View in AR</button>
             </model-viewer>
+
+            {/* AR launch screen — covers model preview until user taps */}
+            {!modelPreview && (
+              <div className="ar-launch-screen">
+                <button className="ar-back-btn" onClick={closeModel}>← Back</button>
+
+                <div className="ar-launch-body">
+                  <div className="ar-launch-icon">
+                    <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M32 4L58 18V46L32 60L6 46V18L32 4Z" stroke="#667eea" strokeWidth="2.5" strokeLinejoin="round"/>
+                      <path d="M32 4V60M6 18L58 18M6 46L58 46" stroke="#764ba2" strokeWidth="1.2" strokeDasharray="4 3"/>
+                      <circle cx="32" cy="32" r="6" fill="#667eea" opacity="0.8"/>
+                    </svg>
+                  </div>
+                  <p className="ar-launch-keyword">{activeModel.keyword}</p>
+                  <button
+                    className="ar-big-btn"
+                    onClick={() => modelViewerRef.current?.activateAR()}
+                  >
+                    View in AR
+                  </button>
+                  <button
+                    className="ar-preview-btn"
+                    onClick={() => setModelPreview(true)}
+                  >
+                    Preview 3D model
+                  </button>
+                  {activeModel.url && (
+                    <a
+                      href={activeModel.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ar-url-link"
+                    >Open URL</a>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Header shown only in preview mode */}
+            {modelPreview && (
+              <div className="content-header">
+                <button className="back-btn" onClick={closeModel}>← Back</button>
+                <span className="content-title">{activeModel.keyword}</span>
+                <button
+                  className="content-url-btn"
+                  onClick={() => modelViewerRef.current?.activateAR()}
+                >View in AR</button>
+              </div>
+            )}
           </div>
         )}
 
@@ -520,24 +556,6 @@ export default function Scanner() {
           </div>
         )}
 
-        <div className="rules-panel">
-          <p className="panel-title">Active Rules</p>
-          {rules.length === 0
-            ? <p className="no-rules">No active rules</p>
-            : rules.map(r => (
-              <div key={r.id} className="rule-chip">
-                <span className="kw">{r.keyword}</span>
-                <span className="arrow">→</span>
-                <span className="url">
-                  {r.model_url ? '3D model' : r.video_url ? 'Video' : r.url?.replace(/^https?:\/\//, '') ?? '—'}
-                </span>
-                {r.image_url && <span className="chip-img-badge">IMG</span>}
-                {r.video_url && !r.model_url && <span className="chip-vid-badge">VID</span>}
-              </div>
-            ))
-          }
-        </div>
-
         <div className="mode-toggle">
           <button
             className={`mode-btn${scanMode === 'text' ? ' active' : ''}`}
@@ -553,7 +571,6 @@ export default function Scanner() {
           </button>
         </div>
 
-        <Link to="/admin" className="admin-link">Admin Panel</Link>
       </div>
     </>
   );

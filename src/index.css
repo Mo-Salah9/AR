@@ -422,6 +422,94 @@ body {
   background: #000;
 }
 
+/* ── AR launch screen (shown instead of 3D preview) ────────────── */
+
+.ar-launch-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: linear-gradient(160deg, #0b0b18 0%, #16082a 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+.ar-back-btn {
+  position: absolute;
+  top: 20px;
+  left: 16px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: #fff;
+  padding: 8px 18px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ar-launch-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 24px;
+  text-align: center;
+}
+
+.ar-launch-icon svg {
+  width: 80px;
+  height: 80px;
+  filter: drop-shadow(0 0 18px rgba(102,126,234,0.5));
+}
+
+.ar-launch-keyword {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: 0.3px;
+}
+
+.ar-big-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  padding: 18px 52px;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.4px;
+  box-shadow: 0 8px 32px rgba(102,126,234,0.45);
+  transition: transform 0.12s, opacity 0.15s;
+  min-width: 220px;
+}
+
+.ar-big-btn:active { transform: scale(0.97); opacity: 0.9; }
+
+.ar-preview-btn {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.6);
+  border-radius: 10px;
+  padding: 10px 28px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.ar-preview-btn:hover { color: #fff; border-color: rgba(255,255,255,0.4); }
+
+.ar-url-link {
+  color: rgba(255,255,255,0.45);
+  font-size: 13px;
+  text-decoration: underline;
+}
+
 /* model-viewer built-in AR slot button */
 .ar-slot-btn {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
