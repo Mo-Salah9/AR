@@ -350,8 +350,9 @@ export default function Scanner() {
           if (!triggeredRef.current.has(rule.id)) {
             triggeredRef.current.add(rule.id);
             triggerRule(rule);
-            // Stop scanner so it doesn't compete with the model viewer
-            if (rule.model_url) stopImageMode();
+            // Defer stop to next task — calling mindar.stop() from inside
+            // onTargetFound (which runs mid-frame) crashes MindAR on first scan.
+            if (rule.model_url) setTimeout(() => stopImageMode().catch(() => {}), 0);
           }
         };
         anchor.onTargetLost = () => triggeredRef.current.delete(rule.id);
@@ -385,7 +386,9 @@ export default function Scanner() {
     if (scanMode === 'text') return;
     await stopImageMode();
     setScanMode('text');
-    await startTextMode();
+    // Wait for the OS to release the camera hardware before requesting it again
+    await new Promise(r => setTimeout(r, 200));
+    await startTextMode().catch(() => {});
   }
 
   // ── Boot ──────────────────────────────────────────────────────────
@@ -437,7 +440,8 @@ export default function Scanner() {
     triggeredRef.current.delete(activeModel?.id);
     setActiveModel(null);
     setArLaunching(false);
-    if (scanMode === 'image') startImageMode().catch(() => {});
+    // Delay restart so the deferred stopImageMode() from detection finishes first
+    if (scanMode === 'image') setTimeout(() => startImageMode().catch(() => {}), 300);
   }
 
   function closeVideo() {
