@@ -82,6 +82,7 @@ export default function Scanner() {
   const mindUrlRef       = useRef(null);
   const compiledRulesRef = useRef([]);
   const MindARThreeRef   = useRef(null);
+  const activeModelRef   = useRef(null); // mirror of activeModel state for interval access
 
   const [rules,       setRules]       = useState([]);
   const [banner,      setBanner]      = useState(null);
@@ -104,6 +105,9 @@ export default function Scanner() {
   function addLoadStep(step) {
     setLoadSteps(prev => [...prev, step]);
   }
+
+  // Keep ref in sync so the interval can check without a stale closure
+  useEffect(() => { activeModelRef.current = activeModel; }, [activeModel]);
 
   // ── Image target compilation with cache ──────────────────────────
 
@@ -160,13 +164,35 @@ export default function Scanner() {
 
   function triggerRule(rule) {
     if (rule.model_url) {
-      setActiveModel(rule);
-      setBanner({ text: `"${rule.keyword}" detected`, url: null });
-      setTimeout(() => setBanner(null), 3000);
+      const isAndroid = /android/i.test(navigator.userAgent);
+
+      if (isAndroid) {
+        // Android: navigate to Scene Viewer directly — no user gesture required
+        const file     = encodeURIComponent(rule.model_url);
+        const fallback = encodeURIComponent(window.location.href);
+        const title    = encodeURIComponent(rule.keyword);
+        window.location.href =
+          `intent://arvr.google.com/scene-viewer/1.0?file=${file}&mode=ar_preferred&title=${title}` +
+          `#Intent;scheme=https;package=com.google.android.googlequicksearchbox;` +
+          `action=android.intent.action.VIEW;S.browser_fallback_url=${fallback};end;`;
+        setBanner({ text: `Opening AR for "${rule.keyword}"…`, url: null });
+        setTimeout(() => setBanner(null), 3000);
+      } else {
+        // iOS / desktop: show modal, then try auto-activating AR
+        setActiveModel(rule);
+      }
     } else if (rule.url) {
-      const display = rule.url.replace(/^https?:\/\//, '');
-      setBanner({ text: `"${rule.keyword}" — tap to open ${display}`, url: rule.url });
-      setTimeout(() => setBanner(null), 8000);
+      // Try to open URL immediately — only fall back to banner if popup is blocked
+      const win = window.open(rule.url, '_blank', 'noopener,noreferrer');
+      if (!win) {
+        // Popup blocked — give the user a tappable link
+        const display = rule.url.replace(/^https?:\/\//, '');
+        setBanner({ text: `"${rule.keyword}" detected — tap to open ${display}`, url: rule.url });
+        setTimeout(() => setBanner(null), 8000);
+      } else {
+        setBanner({ text: `"${rule.keyword}" detected`, url: null });
+        setTimeout(() => setBanner(null), 2500);
+      }
     }
   }
 
@@ -239,7 +265,7 @@ export default function Scanner() {
     markDone('ocr');
 
     intervalRef.current = setInterval(async () => {
-      if (scanningRef.current || !aliveRef.current) return;
+      if (scanningRef.current || !aliveRef.current || activeModelRef.current) return;
       scanningRef.current = true;
       const cap = captureRef.current, vid = videoRef.current;
       if (cap && vid && vid.readyState >= 2) {
@@ -283,6 +309,7 @@ export default function Scanner() {
       compiledRulesRef.current.forEach((rule, i) => {
         const anchor = mindar.addAnchor(i);
         anchor.onTargetFound = () => {
+          if (activeModelRef.current) return;
           if (!triggeredRef.current.has(rule.id)) {
             triggeredRef.current.add(rule.id);
             triggerRule(rule);
