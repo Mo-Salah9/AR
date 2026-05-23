@@ -302,13 +302,62 @@ export default function Scanner() {
       const { renderer, scene, camera } = mindar;
       await mindar.start();
 
+      // Load GLTFLoader only if any rule has a 3D model
+      let GLTFLoader = null;
+      if (compiledRulesRef.current.some(r => r.model_url)) {
+        try {
+          ({ GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js'));
+        } catch (_) {}
+      }
+
       compiledRulesRef.current.forEach((rule, i) => {
         const anchor = mindar.addAnchor(i);
+
+        // Attach 3D model directly to the anchor — instantly visible when image is detected
+        if (rule.model_url && GLTFLoader) {
+          const loader = new GLTFLoader();
+          loader.load(rule.model_url, gltf => {
+            const model = gltf.scene;
+
+            // Compute bounding box without importing THREE directly
+            let minX = Infinity, minY = Infinity, minZ = Infinity;
+            let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+            model.traverse(child => {
+              if (child.isMesh && child.geometry) {
+                child.geometry.computeBoundingBox();
+                const b = child.geometry.boundingBox;
+                if (b) {
+                  minX = Math.min(minX, b.min.x); maxX = Math.max(maxX, b.max.x);
+                  minY = Math.min(minY, b.min.y); maxY = Math.max(maxY, b.max.y);
+                  minZ = Math.min(minZ, b.min.z); maxZ = Math.max(maxZ, b.max.z);
+                }
+              }
+            });
+
+            const sX = isFinite(maxX - minX) ? maxX - minX : 1;
+            const sY = isFinite(maxY - minY) ? maxY - minY : 1;
+            const sZ = isFinite(maxZ - minZ) ? maxZ - minZ : 1;
+            const scale = 0.15 / Math.max(sX, sY, sZ);
+
+            model.scale.set(scale, scale, scale);
+            // Center horizontally; lift slightly above the marker plane
+            model.position.set(
+              -((minX + maxX) / 2) * scale,
+              -((minY + maxY) / 2) * scale + sY * scale * 0.5,
+              0,
+            );
+            anchor.group.add(model);
+          }, undefined, err => console.warn('GLB load failed:', err));
+        }
+
         anchor.onTargetFound = () => {
-          if (activeModelRef.current || activeVideoRef.current) return;
-          if (!triggeredRef.current.has(rule.id)) {
-            triggeredRef.current.add(rule.id);
-            triggerRule(rule);
+          if (activeVideoRef.current) return;
+          // Model rules appear in-scene automatically — only trigger for URL/video rules
+          if (!rule.model_url) {
+            if (!triggeredRef.current.has(rule.id)) {
+              triggeredRef.current.add(rule.id);
+              triggerRule(rule);
+            }
           }
         };
         anchor.onTargetLost = () => triggeredRef.current.delete(rule.id);
