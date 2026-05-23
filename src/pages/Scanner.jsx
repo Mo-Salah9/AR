@@ -87,6 +87,7 @@ export default function Scanner() {
   const [scanMode,    setScanMode]    = useState('text');
   const [imageStatus, setImageStatus] = useState('');
   const [imgReady,    setImgReady]    = useState(false);
+  const [arLaunching, setArLaunching] = useState(false);
 
   const [appReady,  setAppReady]  = useState(false);
   const [loadSteps, setLoadSteps] = useState([
@@ -114,14 +115,37 @@ export default function Scanner() {
     tracks.forEach(t => { t.enabled = !(activeModel || activeVideo); });
   }, [activeModel, activeVideo]);
 
-  // Auto-activate AR when model-viewer opens from image detection
+  // Skip 3D preview: show "Launching AR…" overlay, activate AR on load, fall back on failure
   useEffect(() => {
-    if (!activeModel?.model_url) return;
+    if (!activeModel?.model_url) { setArLaunching(false); return; }
     const mv = modelViewerRef.current;
     if (!mv) return;
-    const tryAR = () => { try { mv.activateAR(); } catch (_) {} };
-    mv.addEventListener('load', tryAR, { once: true });
-    return () => mv.removeEventListener('load', tryAR);
+
+    setArLaunching(true);
+    let sessionStarted = false;
+    let fallbackTimer;
+
+    const handleLoad = () => {
+      try { mv.activateAR(); } catch (_) { setArLaunching(false); return; }
+      // Safety net: show model viewer if AR events never fire within 8s
+      fallbackTimer = setTimeout(() => setArLaunching(false), 8000);
+    };
+
+    const handleArStatus = (e) => {
+      clearTimeout(fallbackTimer);
+      const { status } = e.detail;
+      if (status === 'session-started') { sessionStarted = true; }
+      else if (status === 'failed') { setArLaunching(false); }
+      else if (status === 'not-presenting' && sessionStarted) { setArLaunching(false); }
+    };
+
+    mv.addEventListener('load', handleLoad, { once: true });
+    mv.addEventListener('ar-status', handleArStatus);
+    return () => {
+      clearTimeout(fallbackTimer);
+      mv.removeEventListener('load', handleLoad);
+      mv.removeEventListener('ar-status', handleArStatus);
+    };
   }, [activeModel]);
 
   // ── Image target compilation with cache ──────────────────────────
@@ -318,53 +342,8 @@ export default function Scanner() {
       const { renderer, scene, camera } = mindar;
       await mindar.start();
 
-      // Load GLTFLoader only if any rule has a 3D model
-      let GLTFLoader = null;
-      if (compiledRulesRef.current.some(r => r.model_url)) {
-        try {
-          ({ GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js'));
-        } catch (_) {}
-      }
-
       compiledRulesRef.current.forEach((rule, i) => {
         const anchor = mindar.addAnchor(i);
-
-        // Attach 3D model directly to the anchor — instantly visible when image is detected
-        if (rule.model_url && GLTFLoader) {
-          const loader = new GLTFLoader();
-          loader.load(rule.model_url, gltf => {
-            const model = gltf.scene;
-
-            // Compute bounding box without importing THREE directly
-            let minX = Infinity, minY = Infinity, minZ = Infinity;
-            let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-            model.traverse(child => {
-              if (child.isMesh && child.geometry) {
-                child.geometry.computeBoundingBox();
-                const b = child.geometry.boundingBox;
-                if (b) {
-                  minX = Math.min(minX, b.min.x); maxX = Math.max(maxX, b.max.x);
-                  minY = Math.min(minY, b.min.y); maxY = Math.max(maxY, b.max.y);
-                  minZ = Math.min(minZ, b.min.z); maxZ = Math.max(maxZ, b.max.z);
-                }
-              }
-            });
-
-            const sX = isFinite(maxX - minX) ? maxX - minX : 1;
-            const sY = isFinite(maxY - minY) ? maxY - minY : 1;
-            const sZ = isFinite(maxZ - minZ) ? maxZ - minZ : 1;
-            const scale = 0.15 / Math.max(sX, sY, sZ);
-
-            model.scale.set(scale, scale, scale);
-            // Center horizontally; lift slightly above the marker plane
-            model.position.set(
-              -((minX + maxX) / 2) * scale,
-              -((minY + maxY) / 2) * scale + sY * scale * 0.5,
-              0,
-            );
-            anchor.group.add(model);
-          }, undefined, err => console.warn('GLB load failed:', err));
-        }
 
         anchor.onTargetFound = () => {
           if (activeModelRef.current || activeVideoRef.current) return;
@@ -457,7 +436,7 @@ export default function Scanner() {
     activeModelRef.current = null;
     triggeredRef.current.delete(activeModel?.id);
     setActiveModel(null);
-    // Resume image scanning if that's where we came from
+    setArLaunching(false);
     if (scanMode === 'image') startImageMode().catch(() => {});
   }
 
@@ -526,10 +505,12 @@ export default function Scanner() {
             <div className="content-header">
               <button className="back-btn" onClick={closeModel}>← Back</button>
               <span className="content-title">{activeModel.keyword}</span>
-              <button
-                className="ar-header-btn"
-                onClick={() => modelViewerRef.current?.activateAR()}
-              >View in AR</button>
+              {!arLaunching && (
+                <button
+                  className="ar-header-btn"
+                  onClick={() => modelViewerRef.current?.activateAR()}
+                >View in AR</button>
+              )}
             </div>
             <model-viewer
               ref={modelViewerRef}
@@ -541,9 +522,16 @@ export default function Scanner() {
               touch-action="pan-y"
               shadow-intensity="1"
               class="content-model-viewer"
+              camera-orbit={`0deg 75deg ${Math.round(105 / (activeModel.model_scale ?? 0.25))}%`}
             >
               <button slot="ar-button" className="ar-slot-btn">View in AR</button>
             </model-viewer>
+            {arLaunching && (
+              <div className="ar-launch-screen">
+                <div className="ar-launch-dot" />
+                <span>Launching AR…</span>
+              </div>
+            )}
           </div>
         )}
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 
-const BLANK = { keyword: '', url: '', active: true, image_url: null, model_url: null, video_url: null };
+const BLANK = { keyword: '', url: '', active: true, image_url: null, model_url: null, video_url: null, model_scale: 0.25 };
 
 async function uploadFile(bucket, file) {
   const ext = file.name.split('.').pop();
@@ -45,12 +45,13 @@ export default function Admin() {
   function beginEdit(rule) {
     setEditId(rule.id);
     setForm({
-      keyword:   rule.keyword,
-      url:       rule.url ?? '',
-      active:    rule.active,
-      image_url: rule.image_url,
-      model_url: rule.model_url,
-      video_url: rule.video_url,
+      keyword:     rule.keyword,
+      url:         rule.url ?? '',
+      active:      rule.active,
+      image_url:   rule.image_url,
+      model_url:   rule.model_url,
+      video_url:   rule.video_url,
+      model_scale: rule.model_scale ?? 0.25,
     });
     setImageFile(null);
     setModelFile(null);
@@ -109,12 +110,13 @@ export default function Admin() {
     }
 
     const payload = {
-      keyword:   form.keyword.trim(),
-      url:       form.url.trim() || null,
-      active:    form.active,
-      image_url: image_url ?? null,
-      model_url: model_url ?? null,
-      video_url: video_url ?? null,
+      keyword:     form.keyword.trim(),
+      url:         form.url.trim() || null,
+      active:      form.active,
+      image_url:   image_url ?? null,
+      model_url:   model_url ?? null,
+      video_url:   video_url ?? null,
+      model_scale: model_url ?? form.model_url ? (form.model_scale ?? 0.25) : null,
     };
 
     const { error } = editId
@@ -210,7 +212,7 @@ export default function Admin() {
                 {!imgPreview && form.image_url && <span className="file-badge">Image saved</span>}
               </div>
 
-              {/* 3D model */}
+              {/* 3D model + scale */}
               <div className="upload-field">
                 <span className="upload-field-label">
                   3D Model (.glb) <span className="field-optional">(AR viewer)</span>
@@ -221,6 +223,17 @@ export default function Admin() {
                 </button>
                 {modelFile && <span className="file-badge model">{modelFile.name}</span>}
                 {!modelFile && form.model_url && <span className="file-badge model">Model saved</span>}
+                {(modelFile || form.model_url) && (
+                  <div className="scale-row">
+                    <span className="upload-field-label" style={{ marginBottom: 0 }}>AR Size</span>
+                    <input
+                      type="range" min="0.1" max="2" step="0.05"
+                      value={form.model_scale ?? 0.25}
+                      onChange={e => setForm(f => ({ ...f, model_scale: parseFloat(e.target.value) }))}
+                    />
+                    <span className="scale-value">{Math.round((form.model_scale ?? 0.25) * 100)}%</span>
+                  </div>
+                )}
               </div>
 
               {/* Video */}
@@ -283,7 +296,7 @@ export default function Admin() {
                     </td>
                     <td>
                       {rule.model_url
-                        ? <span className="file-badge model">3D</span>
+                        ? <span className="file-badge model">3D · {Math.round((rule.model_scale ?? 0.25) * 100)}%</span>
                         : <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
                       }
                     </td>

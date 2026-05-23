@@ -436,6 +436,59 @@ body {
   background: #000;
 }
 
+/* ── AR launch overlay (shown while activateAR is in flight) ───── */
+
+.ar-launch-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: #0d0d1a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  color: var(--muted);
+  font-size: 15px;
+  pointer-events: none;
+}
+
+.ar-launch-dot {
+  width: 44px;
+  height: 44px;
+  border: 3px solid rgba(255,255,255,0.08);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Admin scale slider row ─────────────────────────────────────── */
+
+.scale-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.scale-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.scale-value {
+  min-width: 40px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
 /* model-viewer built-in AR slot button */
 .ar-slot-btn {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
