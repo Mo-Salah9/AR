@@ -5,6 +5,6 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   optimizeDeps: {
-    exclude: ['tesseract.js'],
+    exclude: ['mind-ar'],
   },
 });

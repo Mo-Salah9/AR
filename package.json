@@ -9,10 +9,12 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
+    "mind-ar": "^1.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.0",
-    "tesseract.js": "^5.1.1"
+    "tesseract.js": "^5.1.1",
+    "three": "^0.150.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
