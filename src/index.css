@@ -22,6 +22,76 @@ body {
   font-family: 'Segoe UI', system-ui, sans-serif;
 }
 
+/* ── Splash / loading screen ───────────────────────────────── */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.splash-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+.splash-logo {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+
+.splash-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 220px;
+}
+
+.splash-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--muted);
+  transition: color 0.3s;
+}
+
+.splash-step.done { color: var(--text); }
+
+.splash-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  transition: background 0.3s, color 0.3s, border-color 0.3s;
+}
+
+.splash-step.done .splash-dot {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.splash-step.pending .splash-dot {
+  animation: blink 1.2s infinite;
+}
+
 /* ── Scanner ───────────────────────────────────────────────── */
 
 .scanner {
@@ -95,6 +165,18 @@ body {
   max-width: 90%;
   z-index: 10;
   animation: slideIn 0.3s ease;
+  text-decoration: none;
+  display: block;
+}
+
+.banner-link {
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0,230,118,0.4);
+}
+
+.banner-link::after {
+  content: ' ↗';
+  font-size: 14px;
 }
 
 @keyframes slideIn {
@@ -241,101 +323,140 @@ body {
   cursor: not-allowed;
 }
 
-/* ── 3D model viewer overlay ───────────────────────────────────── */
+/* ── 3D model viewer — modal card (Interactive-book style) ───── */
 
-.model-overlay {
+.model-modal-bg {
   position: fixed;
   inset: 0;
-  background: #000;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: 50;
+  padding: 16px;
+  animation: fadeIn 0.25s ease;
 }
 
-.model-overlay model-viewer {
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.model-modal-card {
   width: 100%;
-  height: 100%;
-  --progress-bar-color: var(--accent);
+  max-width: 520px;
+  max-height: 90vh;
+  background: var(--surface);
+  border: 1px solid var(--border-h);
+  border-radius: 18px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.3s ease;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.6);
 }
 
-.model-close {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  background: rgba(255,255,255,0.12);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: #fff;
-  font-size: 20px;
-  width: 44px;
-  height: 44px;
+.model-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.model-modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.model-modal-close {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 51;
-  transition: background 0.2s;
+  transition: color 0.2s, background 0.2s;
+  flex-shrink: 0;
 }
 
-.model-close:hover { background: rgba(255,255,255,0.25); }
+.model-modal-close:hover { color: var(--text); background: var(--border-h); }
 
-.model-footer {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 24px;
-  background: linear-gradient(transparent, rgba(0,0,0,0.75));
+/* Light bg so most GLB models render well */
+.model-modal-viewer {
+  width: 100%;
+  height: 420px;
+  background-color: #f0f0f0;
+  --progress-bar-color: #667eea;
+  flex-shrink: 0;
+}
+
+@media (max-height: 700px) {
+  .model-modal-viewer { height: 270px; }
+}
+
+.model-modal-footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  z-index: 51;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
 }
 
-.model-label {
-  color: #fff;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.model-url-btn {
-  background: var(--surface2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 9px 18px;
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-  transition: opacity 0.2s;
-}
-
-.model-url-btn:hover { opacity: 0.85; }
-
-/* Primary AR launch button in model footer */
+/* Primary AR button — gradient matches Interactive-book */
 .ar-launch-btn {
-  background: var(--accent);
-  color: #000;
+  flex: 1;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
   border: none;
-  border-radius: 24px;
-  padding: 12px 28px;
+  border-radius: 10px;
+  padding: 13px 20px;
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
   letter-spacing: 0.3px;
   transition: opacity 0.2s, transform 0.1s;
+  box-shadow: 0 4px 16px rgba(102,126,234,0.35);
 }
 
-.ar-launch-btn:hover  { opacity: 0.88; }
-.ar-launch-btn:active { transform: scale(0.96); }
+.ar-launch-btn:hover  { opacity: 0.9; }
+.ar-launch-btn:active { transform: scale(0.97); }
 
-/* model-viewer's built-in ar-button slot override */
-.ar-slot-btn {
-  background: var(--accent);
-  color: #000;
-  border: none;
-  border-radius: 20px;
-  padding: 10px 22px;
+.model-url-btn {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 13px 18px;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  transition: border-color 0.2s;
+  white-space: nowrap;
+}
+
+.model-url-btn:hover { border-color: var(--border-h); }
+
+/* model-viewer built-in slot button */
+.ar-slot-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
 }
 

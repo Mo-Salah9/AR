@@ -5,16 +5,66 @@ import { supabase } from '../supabaseClient';
 
 const SCAN_MS = 1500;
 
+// Start downloading MindAR chunks immediately — don't wait for image mode switch
+const mindARPromise = Promise.all([
+  import('mind-ar/dist/mindar-image-three.prod.js'),
+  import('mind-ar/dist/mindar-image.prod.js'),
+]).catch(() => [null, null]);
+
+// ── IndexedDB cache ──────────────────────────────────────────────
+// Compiled .mind targets are large (can take 30+ s to generate).
+// We cache them by a key derived from rule IDs + image URLs so the
+// result is reused on every subsequent load and only re-generated
+// when rules actually change.
+
+function openTargetDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('ar-scanner-v1', 1);
+    r.onupgradeneeded = e => e.target.result.createObjectStore('targets');
+    r.onsuccess = e => res(e.target.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function cacheGet(key) {
+  try {
+    const db = await openTargetDB();
+    return new Promise(res => {
+      const req = db.transaction('targets').objectStore('targets').get(key);
+      req.onsuccess = () => res(req.result ?? null);
+      req.onerror  = () => res(null);
+    });
+  } catch { return null; }
+}
+
+async function cachePut(key, value) {
+  try {
+    const db = await openTargetDB();
+    await new Promise((res, rej) => {
+      const tx = db.transaction('targets', 'readwrite');
+      tx.objectStore('targets').put(value, key);
+      tx.oncomplete = res;
+      tx.onerror    = rej;
+    });
+  } catch { /* silently ignore */ }
+}
+
+function makeCacheKey(rules) {
+  return rules.map(r => `${r.id}:${r.image_url}`).sort().join('|');
+}
+
+// ── Image loader ─────────────────────────────────────────────────
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Failed to load: ${src}`));
+    img.onload  = () => resolve(img);
+    img.onerror = () => reject(new Error(`Cannot load: ${src}`));
     img.src = src;
   });
 }
 
+// ── Component ────────────────────────────────────────────────────
 export default function Scanner() {
   const videoRef       = useRef(null);
   const captureRef     = useRef(null);
@@ -29,87 +79,98 @@ export default function Scanner() {
   const imageModeRef   = useRef(null);
   const modelViewerRef = useRef(null);
 
-  // Pre-compilation cache (survives mode switches)
-  const mindUrlRef            = useRef(null);
-  const compiledRulesRef      = useRef([]);
-  const MindARThreeRef        = useRef(null);
-  const compilePromiseRef     = useRef(null);
+  const mindUrlRef       = useRef(null);
+  const compiledRulesRef = useRef([]);
+  const MindARThreeRef   = useRef(null);
 
   const [rules,       setRules]       = useState([]);
-  const [status,      setStatus]      = useState('Initializing…');
-  const [isScanning,  setIsScanning]  = useState(false);
   const [banner,      setBanner]      = useState(null);
   const [activeModel, setActiveModel] = useState(null);
   const [scanMode,    setScanMode]    = useState('text');
   const [imageStatus, setImageStatus] = useState('');
   const [imgReady,    setImgReady]    = useState(false);
 
-  // ── Background pre-compilation ──────────────────────────────────
+  // Loading splash state
+  const [appReady,  setAppReady]  = useState(false);
+  const [loadSteps, setLoadSteps] = useState([
+    { id: 'db',     label: 'Loading rules',        done: false },
+    { id: 'camera', label: 'Starting camera',       done: false },
+    { id: 'ocr',    label: 'Loading text engine',   done: false },
+  ]);
 
-  function precompileImageTargets() {
-    const imageRules = rulesRef.current.filter(r => r.image_url);
-    if (imageRules.length === 0) {
-      mindUrlRef.current = null;
-      compiledRulesRef.current = [];
-      setImgReady(false);
-      return;
-    }
-    setImgReady(false);
-
-    const promise = (async () => {
-      const images = await Promise.all(imageRules.map(r => loadImage(r.image_url)));
-
-      const [{ MindARThree }, { Compiler }] = await Promise.all([
-        import('mind-ar/dist/mindar-image-three.prod.js'),
-        import('mind-ar/dist/mindar-image.prod.js'),
-      ]);
-      MindARThreeRef.current = MindARThree;
-
-      const compiler = new Compiler();
-      await compiler.compileImageTargets(images, () => {});
-      const data = await compiler.exportData();
-
-      if (mindUrlRef.current) URL.revokeObjectURL(mindUrlRef.current);
-      mindUrlRef.current = URL.createObjectURL(new Blob([data]));
-      compiledRulesRef.current = imageRules;
-      setImgReady(true);
-    })();
-
-    compilePromiseRef.current = promise.catch(() => {}); // swallow errors silently
-    return promise;
+  function markDone(id) {
+    setLoadSteps(prev => prev.map(s => s.id === id ? { ...s, done: true } : s));
+  }
+  function addLoadStep(step) {
+    setLoadSteps(prev => [...prev, step]);
   }
 
-  // ── Rules ───────────────────────────────────────────────────────
+  // ── Image target compilation with cache ──────────────────────────
+
+  async function compileImageTargets(imageRules) {
+    const key = makeCacheKey(imageRules);
+
+    // Fast path: use cached compiled data
+    const cached = await cacheGet(key);
+    if (cached) {
+      const [threemod] = await mindARPromise;
+      if (threemod) MindARThreeRef.current = threemod.MindARThree;
+      if (mindUrlRef.current) URL.revokeObjectURL(mindUrlRef.current);
+      mindUrlRef.current    = URL.createObjectURL(new Blob([cached]));
+      compiledRulesRef.current = imageRules;
+      setImgReady(true);
+      markDone('images');
+      return;
+    }
+
+    // Slow path: compile + save to cache
+    const [images, [threemod, coremod]] = await Promise.all([
+      Promise.all(imageRules.map(r => loadImage(r.image_url))),
+      mindARPromise,
+    ]);
+
+    if (!threemod || !coremod) throw new Error('MindAR failed to load');
+    MindARThreeRef.current = threemod.MindARThree;
+
+    const compiler = new coremod.Compiler();
+    await compiler.compileImageTargets(images, () => {});
+    const data = await compiler.exportData();
+
+    await cachePut(key, data); // persist for next session
+
+    if (mindUrlRef.current) URL.revokeObjectURL(mindUrlRef.current);
+    mindUrlRef.current    = URL.createObjectURL(new Blob([data]));
+    compiledRulesRef.current = imageRules;
+    setImgReady(true);
+    markDone('images');
+  }
+
+  // ── Rules ─────────────────────────────────────────────────────────
 
   const fetchRules = useCallback(async () => {
-    const { data } = await supabase
-      .from('rules')
-      .select('*')
-      .eq('active', true);
+    const { data } = await supabase.from('rules').select('*').eq('active', true);
     const fresh = data ?? [];
     rulesRef.current = fresh;
     triggeredRef.current.clear();
     setRules(fresh);
-    precompileImageTargets();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return fresh;
   }, []);
 
-  // ── Trigger action ──────────────────────────────────────────────
+  // ── Trigger action ────────────────────────────────────────────────
 
   function triggerRule(rule) {
     if (rule.model_url) {
       setActiveModel(rule);
-      setBanner(`"${rule.keyword}" detected`);
+      setBanner({ text: `"${rule.keyword}" detected`, url: null });
       setTimeout(() => setBanner(null), 3000);
     } else if (rule.url) {
       const display = rule.url.replace(/^https?:\/\//, '');
-      setBanner(`"${rule.keyword}" detected — opening ${display}…`);
-      setTimeout(() => window.open(rule.url, '_blank'), 600);
-      setTimeout(() => setBanner(null), 4000);
+      setBanner({ text: `"${rule.keyword}" — tap to open ${display}`, url: rule.url });
+      setTimeout(() => setBanner(null), 8000);
     }
   }
 
-  // ── Text mode ───────────────────────────────────────────────────
+  // ── Text mode ──────────────────────────────────────────────────────
 
   function syncCanvas() {
     const v = videoRef.current, o = overlayRef.current, c = captureRef.current;
@@ -125,8 +186,7 @@ export default function Scanner() {
     if (!ol || !cap) return;
     const ctx = ol.getContext('2d');
     ctx.clearRect(0, 0, ol.width, ol.height);
-    const sx = ol.width / (cap.width || 1);
-    const sy = ol.height / (cap.height || 1);
+    const sx = ol.width / (cap.width || 1), sy = ol.height / (cap.height || 1);
     words.forEach(({ text, bbox, confidence }) => {
       if (!text.trim() || confidence < 45) return;
       const match = rulesRef.current.some(r =>
@@ -156,36 +216,27 @@ export default function Scanner() {
 
   async function startTextMode() {
     if (!aliveRef.current) return;
-    setStatus('Requesting camera…');
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false,
+        video: { facingMode: { ideal: 'environment' } }, audio: false,
       });
-    } catch (e) {
-      setStatus(`Camera error: ${e.message}`);
-      return;
-    }
-    if (!aliveRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
+    } catch (e) { throw new Error(`Camera: ${e.message}`); }
 
+    if (!aliveRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
     videoRef.current.srcObject = stream;
     await new Promise(res =>
       videoRef.current.addEventListener('loadedmetadata', res, { once: true })
     );
     syncCanvas();
     window.addEventListener('resize', syncCanvas);
+    markDone('camera');
 
-    setStatus('Loading OCR engine (EN + AR)…');
     try {
       workerRef.current = await createWorker('eng+ara', 1, { logger: () => {} });
-    } catch (e) {
-      setStatus(`OCR error: ${e.message}`); return;
-    }
+    } catch (e) { throw new Error(`OCR: ${e.message}`); }
     if (!aliveRef.current) return;
-
-    setIsScanning(true);
-    setStatus('Scanning for text…');
+    markDone('ocr');
 
     intervalRef.current = setInterval(async () => {
       if (scanningRef.current || !aliveRef.current) return;
@@ -209,40 +260,23 @@ export default function Scanner() {
     workerRef.current = null;
     videoRef.current?.srcObject?.getTracks().forEach(t => t.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
-    setIsScanning(false);
   }
 
-  // ── Image mode ──────────────────────────────────────────────────
+  // ── Image mode ────────────────────────────────────────────────────
 
   async function startImageMode() {
-    const imageRules = compiledRulesRef.current.length > 0
-      ? compiledRulesRef.current
-      : rulesRef.current.filter(r => r.image_url);
-
-    if (imageRules.length === 0) {
-      setImageStatus('No image rules with Marker Images found. Add them in Admin Panel.');
+    if (!mindUrlRef.current || !MindARThreeRef.current) {
+      setImageStatus('AR targets not ready — please wait a moment and try again.');
       return;
     }
-
-    if (!mindUrlRef.current) {
-      setImageStatus('Preparing AR targets…');
-      try {
-        await (compilePromiseRef.current ?? precompileImageTargets());
-      } catch (e) {
-        setImageStatus(`Preparation failed: ${e.message}`);
-        return;
-      }
-    }
-
     setImageStatus('Starting AR camera…');
     try {
       const mindar = new MindARThreeRef.current({
-        container:      imageModeRef.current,
+        container: imageModeRef.current,
         imageTargetSrc: mindUrlRef.current,
-        maxTrack:       compiledRulesRef.current.length,
+        maxTrack: compiledRulesRef.current.length,
       });
       mindarRef.current = mindar;
-
       const { renderer, scene, camera } = mindar;
       await mindar.start();
 
@@ -266,17 +300,13 @@ export default function Scanner() {
 
   async function stopImageMode() {
     if (mindarRef.current) {
-      try {
-        mindarRef.current.renderer.setAnimationLoop(null);
-        await mindarRef.current.stop();
-      } catch (_) {}
+      try { mindarRef.current.renderer.setAnimationLoop(null); await mindarRef.current.stop(); }
+      catch (_) {}
       mindarRef.current = null;
     }
     triggeredRef.current.clear();
     setImageStatus('');
   }
-
-  // ── Mode toggle ─────────────────────────────────────────────────
 
   async function switchToImage() {
     if (scanMode === 'image') return;
@@ -292,16 +322,33 @@ export default function Scanner() {
     await startTextMode();
   }
 
-  // ── Lifecycle ───────────────────────────────────────────────────
+  // ── Boot ──────────────────────────────────────────────────────────
 
   useEffect(() => {
     aliveRef.current = true;
 
     async function boot() {
-      await fetchRules(); // also triggers precompileImageTargets in background
-      await startTextMode();
+      // 1. Fetch rules (fast DB call)
+      const fresh = await fetchRules();
+      markDone('db');
+
+      const imageRules = fresh.filter(r => r.image_url);
+
+      // 2. Register the images step only if there are image rules
+      if (imageRules.length > 0) {
+        addLoadStep({ id: 'images', label: 'Preparing AR targets', done: false });
+      }
+
+      // 3. Load OCR engine + compile image targets in parallel
+      await Promise.all([
+        startTextMode(),
+        imageRules.length > 0 ? compileImageTargets(imageRules) : Promise.resolve(),
+      ]);
+
+      setAppReady(true);
     }
-    boot();
+
+    boot().catch(() => setAppReady(true)); // always show the app even if something fails
 
     const channel = supabase
       .channel('rules-live')
@@ -323,137 +370,146 @@ export default function Scanner() {
   const hasImageRules = rules.some(r => r.image_url);
 
   return (
-    <div className="scanner">
-      {/* Text mode camera */}
-      <video
-        ref={videoRef}
-        autoPlay playsInline muted
-        style={{ display: scanMode === 'text' ? 'block' : 'none' }}
-      />
-      <canvas
-        ref={overlayRef}
-        className="overlay"
-        style={{ display: scanMode === 'text' ? 'block' : 'none' }}
-      />
-      <canvas ref={captureRef} style={{ display: 'none' }} />
-
-      {/* Image mode — MindAR injects its video + WebGL canvas here */}
-      <div
-        ref={imageModeRef}
-        className="image-mode-container"
-        style={{ display: scanMode === 'image' ? 'block' : 'none' }}
-      />
-
-      {/* Text mode status */}
-      {scanMode === 'text' && (
-        <div className={`status-bar${isScanning ? ' scanning' : ''}`}>
-          <span className="dot" />
-          {status}
-        </div>
-      )}
-
-      {/* Image mode status / progress */}
-      {scanMode === 'image' && imageStatus && (
-        <div className="image-status">
-          <span className="dot scanning" />
-          {imageStatus}
-        </div>
-      )}
-
-      {banner && <div className="banner">{banner}</div>}
-
-      {/* 3D model viewer overlay */}
-      {activeModel && (
-        <div className="model-overlay">
-          <model-viewer
-            ref={modelViewerRef}
-            src={activeModel.model_url}
-            ar
-            ar-modes="webxr scene-viewer quick-look"
-            auto-rotate
-            camera-controls
-            style={{ width: '100%', height: '100%' }}
-          >
-            {/* Custom AR button rendered inside model-viewer's shadow DOM slot */}
-            <button
-              slot="ar-button"
-              className="ar-slot-btn"
-            >
-              View in AR
-            </button>
-          </model-viewer>
-
-          <button
-            className="model-close"
-            onClick={() => {
-              triggeredRef.current.delete(activeModel.id);
-              setActiveModel(null);
-            }}
-          >
-            ✕
-          </button>
-
-          <div className="model-footer">
-            <span className="model-label">{activeModel.keyword}</span>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                className="ar-launch-btn"
-                onClick={() => modelViewerRef.current?.activateAR()}
-              >
-                View in AR
-              </button>
-              {activeModel.url && (
-                <a
-                  href={activeModel.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="model-url-btn"
-                >
-                  Open URL
-                </a>
-              )}
+    <>
+      {/* ── Splash / loading screen ─────────────────────────────── */}
+      {!appReady && (
+        <div className="splash">
+          <div className="splash-card">
+            <div className="splash-logo">AR Scanner</div>
+            <div className="splash-steps">
+              {loadSteps.map(step => (
+                <div key={step.id} className={`splash-step ${step.done ? 'done' : 'pending'}`}>
+                  <span className="splash-dot">{step.done ? '✓' : '⋯'}</span>
+                  <span>{step.label}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* Active rules panel */}
-      <div className="rules-panel">
-        <p className="panel-title">Active Rules</p>
-        {rules.length === 0
-          ? <p className="no-rules">No active rules</p>
-          : rules.map(r => (
-            <div key={r.id} className="rule-chip">
-              <span className="kw">{r.keyword}</span>
-              <span className="arrow">→</span>
-              <span className="url">
-                {r.model_url ? '3D model' : r.url?.replace(/^https?:\/\//, '') ?? '—'}
-              </span>
-              {r.image_url && <span className="chip-img-badge">IMG</span>}
+      {/* ── Main scanner (hidden during splash, avoids flash) ────── */}
+      <div className="scanner" style={{ visibility: appReady ? 'visible' : 'hidden' }}>
+        <video
+          ref={videoRef}
+          autoPlay playsInline muted
+          style={{ display: scanMode === 'text' ? 'block' : 'none' }}
+        />
+        <canvas
+          ref={overlayRef}
+          className="overlay"
+          style={{ display: scanMode === 'text' ? 'block' : 'none' }}
+        />
+        <canvas ref={captureRef} style={{ display: 'none' }} />
+
+        <div
+          ref={imageModeRef}
+          className="image-mode-container"
+          style={{ display: scanMode === 'image' ? 'block' : 'none' }}
+        />
+
+        {scanMode === 'image' && imageStatus && (
+          <div className="image-status">
+            <span className="dot scanning" />
+            {imageStatus}
+          </div>
+        )}
+
+        {banner && (
+          banner.url
+            ? <a href={banner.url} target="_blank" rel="noopener noreferrer" className="banner banner-link">{banner.text}</a>
+            : <div className="banner">{banner.text}</div>
+        )}
+
+        {/* 3D model viewer — modal card style */}
+        {activeModel && (
+          <div
+            className="model-modal-bg"
+            onClick={() => { triggeredRef.current.delete(activeModel.id); setActiveModel(null); }}
+          >
+            <div className="model-modal-card" onClick={e => e.stopPropagation()}>
+
+              {/* Header */}
+              <div className="model-modal-header">
+                <span className="model-modal-title">{activeModel.keyword}</span>
+                <button
+                  className="model-modal-close"
+                  onClick={() => { triggeredRef.current.delete(activeModel.id); setActiveModel(null); }}
+                >×</button>
+              </div>
+
+              {/* model-viewer frame */}
+              <model-viewer
+                ref={modelViewerRef}
+                src={activeModel.model_url}
+                ar
+                ar-modes="webxr scene-viewer quick-look"
+                auto-rotate
+                camera-controls
+                touch-action="pan-y"
+                shadow-intensity="1"
+                class="model-modal-viewer"
+              >
+                {/* slot button shown inside the 3D scene (bottom-right) */}
+                <button slot="ar-button" className="ar-slot-btn">View in AR</button>
+              </model-viewer>
+
+              {/* Footer actions */}
+              <div className="model-modal-footer">
+                <button
+                  className="ar-launch-btn"
+                  onClick={() => modelViewerRef.current?.activateAR()}
+                >
+                  View in AR
+                </button>
+                {activeModel.url && (
+                  <a
+                    href={activeModel.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="model-url-btn"
+                  >Open URL</a>
+                )}
+              </div>
+
             </div>
-          ))
-        }
-      </div>
+          </div>
+        )}
 
-      {/* Mode toggle */}
-      <div className="mode-toggle">
-        <button
-          className={`mode-btn${scanMode === 'text' ? ' active' : ''}`}
-          onClick={switchToText}
-        >
-          Text
-        </button>
-        <button
-          className={`mode-btn${scanMode === 'image' ? ' active' : ''}`}
-          onClick={switchToImage}
-          disabled={!hasImageRules}
-          title={!hasImageRules ? 'Add rules with Marker Images in admin to enable' : ''}
-        >
-          {hasImageRules && !imgReady ? 'Image ⋯' : 'Image'}
-        </button>
-      </div>
+        <div className="rules-panel">
+          <p className="panel-title">Active Rules</p>
+          {rules.length === 0
+            ? <p className="no-rules">No active rules</p>
+            : rules.map(r => (
+              <div key={r.id} className="rule-chip">
+                <span className="kw">{r.keyword}</span>
+                <span className="arrow">→</span>
+                <span className="url">
+                  {r.model_url ? '3D model' : r.url?.replace(/^https?:\/\//, '') ?? '—'}
+                </span>
+                {r.image_url && <span className="chip-img-badge">IMG</span>}
+              </div>
+            ))
+          }
+        </div>
 
-      <Link to="/admin" className="admin-link">Admin Panel</Link>
-    </div>
+        <div className="mode-toggle">
+          <button
+            className={`mode-btn${scanMode === 'text' ? ' active' : ''}`}
+            onClick={switchToText}
+          >Text</button>
+          <button
+            className={`mode-btn${scanMode === 'image' ? ' active' : ''}`}
+            onClick={switchToImage}
+            disabled={!hasImageRules}
+            title={!hasImageRules ? 'Add rules with Marker Images in admin' : ''}
+          >
+            {hasImageRules && !imgReady ? 'Image ⋯' : 'Image'}
+          </button>
+        </div>
+
+        <Link to="/admin" className="admin-link">Admin Panel</Link>
+      </div>
+    </>
   );
 }
